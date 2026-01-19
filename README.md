@@ -34,7 +34,7 @@ ollama pull devstral-small-2
 ### 2. 프로젝트 설치
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/js-drop-table-user/langGraph-poc.git
 cd langGraph-poc
 
 # uv 사용 (권장)
