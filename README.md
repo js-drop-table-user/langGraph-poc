@@ -113,12 +113,12 @@ langGraph-poc/
 
 ## Available tools
 
-| Tool             | Description              |
-| ---------------- | ------------------------ |
-| `file_read`      | Read file contents       |
-| `file_write`     | Create/update files      |
-| `list_directory` | List directory contents  |
-| `run_python`     | Execute Python code      |
+| Tool             | Description             |
+| ---------------- | ----------------------- |
+| `file_read`      | Read file contents      |
+| `file_write`     | Create/update files     |
+| `list_directory` | List directory contents |
+| `run_python`     | Execute Python code     |
 
 By default, all file operations happen under `workspace/`.
 
@@ -139,9 +139,9 @@ class OllamaConfig:
 
 ### Model selection
 
-| Model              | Tool calling | Recommended for |
-| ------------------ | -----------: | --------------- |
-| `devstral-small-2` | ✅           | agent (default) |
+| Model              |       Tool calling | Recommended for |
+| ------------------ | -----------------: | --------------- |
+| `devstral-small-2` |                 ✅ | agent (default) |
 | `qwen2.5-coder`    | ⚠️ may be unstable | code generation |
 
 ---
@@ -184,4 +184,3 @@ TOOLS = [..., search_web]
 ## License
 
 MIT License
-
