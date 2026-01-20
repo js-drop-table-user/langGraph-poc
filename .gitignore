@@ -38,4 +38,6 @@ venv.bak/
 .vscode/
 .idea/
 
-workspace/
+workspace/*
+!workspace/.gitkeep
+!workspace/fizzbuzz.py
