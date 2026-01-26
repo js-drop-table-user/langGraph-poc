@@ -41,3 +41,14 @@ venv.bak/
 workspace/*
 !workspace/.gitkeep
 !workspace/fizzbuzz.py
+
+# LangGraph / SQLite
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+agent_memory_test*.sqlite
+
+# Logs
+verify_log.txt
+
+.ruff_cache

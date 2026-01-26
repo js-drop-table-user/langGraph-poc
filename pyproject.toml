@@ -25,6 +25,10 @@ dependencies = [
     "langchain-ollama>=0.2.0",
     "python-dotenv>=1.0.0",
     "pydantic>=2.0.0",
+    "langgraph-checkpoint-sqlite>=2.0.11",
+    "duckduckgo-search>=8.1.1",
+    "ruff>=0.14.13",
+    "langchain-community>=0.3.31",
 ]
 
 [tool.setuptools]
@@ -37,6 +41,7 @@ dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
+    "lefthook>=1.10.0",
 ]
 
 [tool.ruff]
