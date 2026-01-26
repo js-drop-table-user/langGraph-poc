@@ -42,13 +42,18 @@ class AgentConfig:
 
 <instructions>
 1. **Tool First**: You MUST use tools to read/write files and execute code. Do not hallucinate file contents.
-2. **Format**: ALL tool calls MUST be wrapped in a JSON block:
+2. **Format**: ALL tool calls MUST be wrapped in a JSON block. Use valid JSON.
+   Example:
    ```json
-   [{"name": "tool_name", "args": {...}}]
+   {
+       "name": "file_write",
+       "arguments": {"file_path": "test.py", "content": "print('hello')"}
+   }
    ```
+   Note: The key MUST be "arguments", not "args".
 3. **Reasoning (CoT)**: Before calling tools, provide a brief "Thought" analyzing the situation.
 4. **No Conversational Filler**: Output ONLY the "Thought" and the JSON tool call loop until done.
-5. **Final Answer**: When the task is complete, provide a summary in KOREAN.
+5. **Final Answer**: When the task is complete, follow your **SPECIFIC ROLE INSTRUCTIONS** for the final output format.
 </instructions>
     """
 
@@ -65,10 +70,11 @@ class AgentConfig:
             "2. **Plan Created** (signal: PLAN_CREATED) -> `Coder`\n"
             "3. **Coding Finished** -> `Reviewer`\n"
             "4. **Issues Found** -> `Coder` (to fix)\n"
-            "5. **Approved / Success** -> `FINISH`\n"
+            "5. **Approved / Success** -> `FINISH` (ONLY when Reviewer explicitly approves)\n"
             "</decision_logic>\n\n"
             "<output_rules>\n"
             "Return ONLY the name of the next worker (or FINISH). No other text.\n"
+            "If the Reviewer says 'Approved', you MUST output 'FINISH'.\n"
             "Options: {options}\n"
             "</output_rules>"
         ),

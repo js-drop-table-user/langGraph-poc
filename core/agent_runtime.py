@@ -44,6 +44,20 @@ def _handle_tool_execution(
     name: str,
 ):
     """도구 실행 및 결과 메시지 추가"""
+    # 리스트 형태의 툴 호출 처리 (간혹 리스트로 올 수 있음)
+    if isinstance(tool_calls, list):
+        # 만약 리스트 요소가 dict가 아니라면, 첫 번째 요소만 사용하는 등의 처리가 필요할 수 있음
+        # 여기서는 단순히 첫 번째 호출만 사용하거나 반복한다고 가정
+        pass
+
+    # tool_calls could be a list of dicts.
+    # We iterate if there are multiple calls.
+    # But current logic seems to handle a list of tool_calls in execute_tools_internal too?
+    # Checking execute_tools_internal implementation: it takes List[Dict].
+
+    # tool_executor expects List[Dict], and tool_calls is List[Dict] (from extract_json).
+    # So we just pass it.
+
     print(f"[{name}] Detected Tools: {[t.get('name') for t in tool_calls]}")
     tool_output = execute_tools_internal(tool_calls, tools_map)
     print(f"[{name}] Tool Output: {tool_output[:100]}...")
@@ -56,13 +70,20 @@ def _handle_potential_tool_failure(
     content: str, messages: List[BaseMessage], name: str
 ) -> bool:
     """도구 호출 실패(할루시네이션) 감지 및 경고"""
-    if "file_write" in content or "run_python" in content:
-        print(f"[{name}] Warning: Potential failed tool call detected.")
+    # 더 강력한 키워드 감지
+    keywords = ["file_write", "run_python", "file_read", "list_directory", "web_search"]
+
+    found_keyword = any(k in content for k in keywords)
+
+    if found_keyword:
+        print(f"[{name}] Warning: Potential failed tool call detected (Invalid JSON).")
         messages.append(AIMessage(content=content))
         messages.append(
             SystemMessage(
-                content="SYSTEM WARNING: You mentioned a tool name but provided NO valid JSON tool call. \n"
-                "You MUST wrap your tool arguments in ```json ... ``` block.\n"
+                content="SYSTEM WARNING: You mentioned a tool name but provided NO valid JSON tool call.\n"
+                "1. You MUST wrap your tool calls in ```json ... ``` block.\n"
+                "2. Ensure the key is 'arguments' (not 'args').\n"
+                '3. Example: {"name": "file_read", "arguments": {"file_path": "..."}}\n'
                 "Please TRY AGAIN with correct JSON format."
             )
         )
