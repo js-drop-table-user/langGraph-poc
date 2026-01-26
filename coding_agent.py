@@ -12,7 +12,7 @@ from typing import Annotated, List, Sequence, TypedDict
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langgraph.checkpoint.sqlite import SqliteSaver
-from langgraph.graph import START, StateGraph
+from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 
 from config import AgentConfig, OllamaConfig
@@ -78,18 +78,33 @@ def supervisor_node(state: AgentState):
     decision = response.content.strip()
 
     # 정규식 기반 매칭 (견고성 강화)
-    next_agent = "FINISH"  # Default fallback
-    found_agents = []
+    # Priority: FINISH > Reviewer > Coder > Planner
+    # 만약 FINISH가 감지되면 무조건 종료.
 
-    for option in conf["options"]:
-        # 단어 경계(\b)를 사용하여 정확한 매칭 (Case-insensitive)
-        if re.search(rf"\b{option}\b", decision, re.IGNORECASE):
-            found_agents.append(option)
+    next_agent = None
 
-    # 여러 개가 매칭되면 가장 마지막에 언급된 것, 혹은 명시적 우선순위 적용
-    # 여기서는 발견된 것 중 마지막 옵션을 선택 (문장 끝에 보통 결론이 오므로)
-    if found_agents:
-        next_agent = found_agents[-1]
+    # 1. Explicit FINISH check
+    if re.search(r"\bFINISH\b", decision, re.IGNORECASE):
+        next_agent = "FINISH"
+    else:
+        # 2. Find other agents
+        for option in conf["options"]:
+            if option == "FINISH":
+                continue
+            if re.search(rf"\b{option}\b", decision, re.IGNORECASE):
+                next_agent = option
+                # Found one, assume single intent or take the first one found?
+                # Usually better to take strict match or last one.
+                # But let's stick to simple logic: first found non-FINISH.
+                break
+
+    if not next_agent:
+        # Fallback
+        next_agent = "FINISH"  # Default to finish if unsure, or maybe Reviewer?
+        # Safe default: FINISH to avoid infinite loops if LLM is broken.
+        print(
+            f"[Supervisor] Warning: Could not parse decision '{decision}'. Defaulting to FINISH."
+        )
 
     print(f"[Supervisor] Raw: {decision!r} -> Next: {next_agent}")
 
@@ -129,8 +144,12 @@ def create_graph():
     workflow.add_edge(START, "Supervisor")
 
     # Conditional Edges from Supervisor
-    # map: next_agent 이름 그대로 노드로 이동. FINISH면 종료.
-    workflow.add_conditional_edges("Supervisor", lambda x: x["next"])
+    # map: next_agent 이름 -> 노드. "FINISH" -> END
+    workflow.add_conditional_edges(
+        "Supervisor",
+        lambda x: x["next"],
+        {"Planner": "Planner", "Coder": "Coder", "Reviewer": "Reviewer", "FINISH": END},
+    )
 
     return workflow
 
