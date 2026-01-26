@@ -1,186 +1,125 @@
-# 🤖 LangGraph Coding Agent (한국어)
+<div align="center">
 
-[![Python](https://img.shields.io/badge/Python-3.9+-blue?logo=python&logoColor=white)](https://python.org)
-[![LangGraph](https://img.shields.io/badge/LangGraph-0.2+-green)](https://github.com/langchain-ai/langgraph)
-[![Ollama](https://img.shields.io/badge/Ollama-Local%20LLM-orange)](https://ollama.ai)
+# 🤖 LangGraph Coding Agent (PoC)
+
+**로컬 LLM으로 안전하고 강력하게 동작하는 자율 코딩 에이전트**
+*Reasoning, Coding, Verification on your Local Machine*
+
+[![Python](https://img.shields.io/badge/Python-3.9%2B-blue?logo=python&logoColor=white)](https://python.org)
+[![LangGraph](https://img.shields.io/badge/LangGraph-0.2%2B-green?logo=langchain&logoColor=white)](https://github.com/langchain-ai/langgraph)
+[![Ollama](https://img.shields.io/badge/Ollama-Local%20LLM-orange?logo=ollama&logoColor=white)](https://ollama.ai)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-> English README: **[README.md](./README.md)**
+[English README](./README.md)
 
-**로컬 LLM으로 파일을 읽고, 코드를 작성하고, 실행까지 하는 AI 코딩 에이전트**
-
-> 💡 클라우드 API 없이 **내 컴퓨터**에서 동작하는 코딩 어시스턴트
+</div>
 
 ---
 
-## ✨ 주요 기능
+## 💡 소개 (Elevator Pitch)
 
-- **작업 폴더 분리**: 모든 파일 작업은 `workspace/` 폴더 내부에서 수행
-- **실시간 스트리밍**: 에이전트 메시지와 도구 실행 결과를 즉시 확인
-- **4가지 도구**: 파일 읽기/쓰기, 디렉토리 조회, Python 코드 실행
-- **100% 로컬**: Ollama 기반으로 인터넷 연결 없이 동작
-- **반복 실행**: 에러 발생 시 재시도 가능 (모델 성능에 따라 다름)
+**LangGraph-PoC**는 **LangGraph**와 **Ollama**를 결합하여, 로컬 환경에서 **기획(Planner) → 구현(Coder) → 검증(Reviewer)** 프로세스를 자율적으로 수행하는 AI 에이전트 시스템입니다.
+
+클라우드 API 비용이나 데이터 유출 걱정 없이, 오직 당신의 로컬 컴퓨터 자원만으로 복잡한 코딩 작업을 수행합니다. 최근 업데이트된 **Robust JSON Strategy**를 통해 LLM의 불완전한 출력을 자동으로 보정하며, 엄격한 워크플로우 통제로 환각(Hallucination)을 최소화했습니다.
 
 ---
 
-## 📦 설치
+## ✨ 주요 기능 (Key Features)
 
-### 1. Ollama 설치 및 모델 다운로드
+- 🧠 **Supervisor 아키텍처**: 관리자(Supervisor)가 Planner, Coder, Reviewer 에이전트를 적재적소에 배치하여 체계적으로 협업합니다.
+- 🛡️ **Robust JSON Parsing**: LLM이 JSON 형식을 틀리거나 텍스트를 섞어 보내도, 하이브리드 파싱 알고리즘이 도구 호출을 정확하게 추출합니다.
+- 🔒 **Secure Workspace**: 모든 파일 작업은 `workspace/` 디렉토리 내로 엄격하게 제한되며, 상위 경로 접근 시도를 차단합니다.
+- 🔄 **Self-Correction (자가 수정)**: 코드 실행 중 에러가 발생하면, 에이전트가 이를 인지하고 스스로 코드를 수정하여 재시도합니다.
+- 🧹 **Auto-Cleanup**: 테스트 및 검증 과정에서 생성된 임시 DB와 파일들을 작업 완료 후 자동으로 정리합니다.
+
+---
+
+## 📦 설치 (Installation)
+
+이 프로젝트는 최신 Python 패키지 매니저인 **uv** 사용을 권장합니다.
+
+### 1. Ollama 설치 및 모델 준비
+[Ollama](https://ollama.ai)를 설치하고, 코딩에 최적화된 모델을 다운로드합니다.
 
 ```bash
-# Ollama 설치: https://ollama.ai
-# 도구 호출을 지원하는 모델 다운로드
-ollama pull devstral-small-2
+# 추천 모델: Qwen 2.5 Coder (14B 이상 권장)
+ollama pull qwen2.5-coder:14b
 ```
 
-### 2. 프로젝트 설치
+### 2. 프로젝트 클론 및 의존성 설치
 
 ```bash
 git clone https://github.com/js-drop-table-user/langGraph-poc.git
 cd langGraph-poc
 
-# uv 사용 (권장)
+# 의존성 설치 (가상환경 자동 생성)
 uv sync
-
-# 또는 pip 사용
-pip install -e .
 ```
 
-### 3. 환경 설정 (선택사항)
+### 3. 환경 설정 (.env)
 
 ```bash
 cp .env.example .env
-# .env 파일에서 모델명, Ollama URL 등 수정
+# .env 파일을 열어 OLLAMA_MODEL 등을 수정하세요.
+# 예: OLLAMA_MODEL=qwen2.5-coder:14b
 ```
 
 ---
 
-## 🚀 사용법
+## 🚀 사용법 (Usage)
+
+에이전트를 실행하고 원하는 작업을 자연어로 요청하세요.
 
 ```bash
-uv run python coding_agent.py
+uv run coding_agent.py
 ```
 
-### 예시 대화
+### 실행 예시
 
-```
-============================================================
-🤖 Ollama Coding Agent
-============================================================
-Model: devstral-small-2
-Workspace: ./workspace
-------------------------------------------------------------
+```text
+Type your request (or 'quit'):
 
-You: 피즈버즈 앱을 만들어줘
+You: 피즈버즈 게임을 파이썬으로 만들어줘.
 
-----------------------------------------
-Agent:
-Tool Call: file_write ({'file_path': 'fizzbuzz.py', ...})
+> [Supervisor]: Planner...
 
-Tool Output: Successfully wrote 643 bytes to fizzbuzz.py
+[Planner]: 피즈버즈 구현 계획을 수립합니다... (PLAN_CREATED)
 
-Agent:
-Tool Call: run_python ({'code': 'exec(open("fizzbuzz.py").read())'})
+> [Supervisor]: Coder...
 
-Tool Output: STDOUT:
-1
-2
-Fizz
-4
-Buzz
-...
+[Coder]: 계획에 따라 workspace/fizzbuzz.py 파일을 작성합니다...
+(Tool Call: file_write)
 
-Agent: 피즈버즈 앱을 성공적으로 생성하고 테스트했습니다!
-----------------------------------------
+> [Supervisor]: Reviewer...
+
+[Reviewer]: 코드를 실행하여 1부터 15까지 출력을 검증합니다...
+(Tool Call: run_python_secure)
+✅ Approved.
+
+> [Supervisor]: FINISH
 ```
 
 ---
 
-## 📁 프로젝트 구조
+## 🛠️ 기술 스택 (Tech Stack)
 
-```
-langGraph-poc/
-├── coding_agent.py       # 메인 에이전트 코드
-├── config.py             # 설정 (모델, URL, 프롬프트)
-├── workspace/            # 에이전트 작업 폴더
-├── pyproject.toml        # 의존성 설정
-├── .env.example          # 환경변수 템플릿
-├── .gitignore
-└── LICENSE
-```
+- **Core**: [Python 3.9+](https://python.org)
+- **Agent Framework**: [LangGraph](https://langchain-ai.github.io/langgraph/), [LangChain](https://www.langchain.com/)
+- **LLM Runtime**: [Ollama](https://ollama.ai/)
+- **Code Quality**: [Ruff](https://docs.astral.sh/ruff/) (Linter)
+- **Package Manager**: [uv](https://github.com/astral-sh/uv)
 
 ---
 
-## 🛠️ 사용 가능한 도구
+## 🤝 기여 (Contributing)
 
-| 도구             | 설명               |
-| ---------------- | ------------------ |
-| `file_read`      | 파일 내용 읽기     |
-| `file_write`     | 파일 생성/수정     |
-| `list_directory` | 디렉토리 목록 조회 |
-| `run_python`     | Python 코드 실행   |
+이 프로젝트는 현재 PoC(개념 증명) 단계입니다. 버그 리포트나 기능 제안은 언제나 환영합니다!
 
-> 📌 기본적으로 모든 파일 작업은 `workspace/` 폴더 내부에서 수행됩니다
-
----
-
-## ⚙️ 설정
-
-### config.py
-
-```python
-class OllamaConfig:
-    BASE_URL = "http://localhost:11434"  # Ollama 서버
-    DEFAULT_MODEL = "devstral-small-2"   # 모델명
-    TEMPERATURE = 0.0                     # 일관성
-    MAX_ITERATIONS = 10                   # 최대 도구 호출 횟수
-    WORKSPACE_DIR = "./workspace"         # 작업 폴더
-```
-
-### 모델 선택 가이드
-
-| 모델               | 도구 호출           | 추천 용도       |
-| ------------------ | ------------------- | --------------- |
-| `devstral-small-2` | ✅ 지원             | 에이전트 (추천) |
-| `qwen2.5-coder`    | ⚠️ 불안정할 수 있음 | 코드 생성       |
-
----
-
-## 🔧 확장하기
-
-### 새 도구 추가
-
-```python
-from langchain_core.tools import tool
-
-@tool
-def search_web(query: str) -> str:
-    """웹에서 정보를 검색합니다."""
-    # 구현
-    return result
-
-# TOOLS 리스트에 추가
-TOOLS = [..., search_web]
-```
-
----
-
-## ⚠️ 주의사항
-
-- **워크스페이스는 샌드박스가 아님**: 접근은 `WORKSPACE_DIR`(기본값: `./workspace`)로 제한되지만, 보안 경계로 보장되진 않습니다.
-- **타임아웃**: `run_python` 도구의 Python 코드 실행은 30초로 제한
-- **격리 없음**: Docker 등의 실제 격리 환경이 아니므로 신뢰할 수 없는 코드 실행에 주의
-
----
-
-## 📚 기술 스택
-
-- **LangGraph** - 상태 기반 에이전트 워크플로우
-- **LangChain** - LLM 도구 바인딩
-- **Ollama** - 로컬 LLM 서버
+1. Issue를 생성하여 논의합니다.
+2. PR(Pull Request)을 보냅니다.
 
 ---
 
 ## 📄 라이선스
 
-MIT License
+MIT License © 2024
