@@ -1,286 +1,179 @@
 """
-Ollama 기반 코딩 에이전트
-LangGraph + Ollama LLM을 사용한 코드 수정/앱 빌딩 에이전트
+멀티 에이전트 코딩 시스템 (Supervisor Pattern + Custom ReAct Loop)
+LangGraph + Ollama + Tools + Persistence
+Refactored to Standard LangGraph Structure & Modular Runtime
 """
 
+import functools
 import os
-import subprocess
-from typing import Annotated, Sequence, TypedDict
+import re
+from typing import Annotated, List, Sequence, TypedDict
 
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
-from langchain_core.tools import tool
-from langchain_ollama import ChatOllama
-from langgraph.graph import END, StateGraph
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.graph import START, StateGraph
 from langgraph.graph.message import add_messages
-from langgraph.prebuilt import ToolNode
 
 from config import AgentConfig, OllamaConfig
+from core.agent_runtime import run_react_agent
+from core.llm_factory import get_llm
+from tools import CODER_TOOLS, PLANNER_TOOLS, REVIEWER_TOOLS
+
+# SQLite DB 경로
+DB_PATH = os.path.join(OllamaConfig.WORKSPACE_DIR, "agent_memory.sqlite")
 
 
 # =============================================================================
 # State 정의
 # =============================================================================
 class AgentState(TypedDict):
-    """에이전트 상태"""
+    """멀티 에이전트 통합 상태"""
 
     messages: Annotated[Sequence[BaseMessage], add_messages]
-    iteration_count: int
+    next: str  # 다음에 실행할 에이전트 이름
 
 
 # =============================================================================
-# 도구 정의
+# Custom Agent Node (Internal ReAct Loop)
 # =============================================================================
-def get_safe_path(path: str) -> str:
-    """워크스페이스 내부로 경로 제한 및 절대 경로 변환"""
-    # 상대 경로를 절대 경로로 변환
-    if not os.path.isabs(path):
-        path = os.path.join(OllamaConfig.WORKSPACE_DIR, path)
-
-    # 경로 정규화 (../ 제거)
-    path = os.path.normpath(path)
-
-    # 워크스페이스 내부에 있는지 확인 (보안)
-    if not path.startswith(os.path.normpath(OllamaConfig.WORKSPACE_DIR)):
-        raise ValueError(
-            f"Access denied: Path must be within {OllamaConfig.WORKSPACE_DIR}"
-        )
-
-    return path
-
-
-@tool
-def file_read(file_path: str) -> str:
-    """파일의 내용을 읽습니다.
-
-    Args:
-        file_path: 읽을 파일의 경로
+def custom_agent_node(state: AgentState, name: str, system_prompt: str, tools: List):
     """
-    try:
-        safe_path = get_safe_path(file_path)
-        with open(safe_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        return f"=== File: {file_path} ===\n{content}"
-    except Exception as e:
-        return f"Error reading file: {e}"
-
-
-@tool
-def file_write(file_path: str, content: str) -> str:
-    """파일에 내용을 씁니다. 디렉토리가 없으면 생성합니다.
-
-    Args:
-        file_path: 쓸 파일의 경로
-        content: 파일에 쓸 내용
+    커스텀 에이전트 노드 Wrapper.
+    Core Runtime을 호출하고 결과를 Graph State 형식으로 변환합니다.
     """
-    try:
-        safe_path = get_safe_path(file_path)
-        os.makedirs(os.path.dirname(safe_path), exist_ok=True)
-        with open(safe_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        return f"Successfully wrote {len(content)} bytes to {file_path}"
-    except Exception as e:
-        return f"Error writing file: {e}"
+    history = state["messages"]
 
+    # Core Runtime 실행 (Modularized)
+    final_response = run_react_agent(name, system_prompt, tools, history)
 
-@tool
-def list_directory(path: str = ".") -> str:
-    """디렉토리의 파일 목록을 반환합니다.
-
-    Args:
-        path: 디렉토리 경로 (기본값: 현재 디렉토리)
-    """
-    try:
-        safe_path = get_safe_path(path)
-        items = os.listdir(safe_path)
-        result = []
-        for item in sorted(items):
-            full_path = os.path.join(safe_path, item)
-            if os.path.isdir(full_path):
-                result.append(f"[DIR]  {item}/")
-            else:
-                size = os.path.getsize(full_path)
-                result.append(f"[FILE] {item} ({size} bytes)")
-        return f"=== Directory: {path} ===\n" + "\n".join(result)
-    except Exception as e:
-        return f"Error listing directory: {e}"
-
-
-@tool
-def run_python(code: str) -> str:
-    """Python 코드를 실행합니다.
-
-    주의: 쉘 명령어(예: 'python file.py')를 입력하면 안 됩니다.
-    순수 Python 코드만 입력하세요.
-
-    파일을 실행하려면 다음 패턴을 사용하세요:
-    import sys; sys.argv=['filename.py']; exec(open('filename.py').read())
-
-    Args:
-        code: 실행할 Python 코드
-    """
-    try:
-        result = subprocess.run(
-            ["python", "-c", code],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            cwd=OllamaConfig.WORKSPACE_DIR,
-        )
-        output = ""
-        if result.stdout:
-            output += f"STDOUT:\n{result.stdout}\n"
-        if result.stderr:
-            output += f"STDERR:\n{result.stderr}\n"
-        if result.returncode != 0:
-            output += f"Return code: {result.returncode}"
-        return output or "Code executed successfully with no output."
-    except subprocess.TimeoutExpired:
-        return "Error: Code execution timed out (30s limit)"
-    except Exception as e:
-        return f"Error executing code: {e}"
-
-
-# 도구 목록
-TOOLS = [file_read, file_write, list_directory, run_python]
+    # 결과 반환 (HumanMessage로 포장하여 Supervisor에게 전달)
+    return {"messages": [HumanMessage(content=final_response, name=name)]}
 
 
 # =============================================================================
-# LLM 설정
+# Supervisor (Orchestrator)
 # =============================================================================
-def get_llm():
-    """Ollama LLM 인스턴스 생성"""
-    llm = ChatOllama(
-        model=OllamaConfig.DEFAULT_MODEL,
-        temperature=OllamaConfig.TEMPERATURE,
-        base_url=OllamaConfig.BASE_URL,
-    )
-    return llm.bind_tools(TOOLS)
-
-
-# =============================================================================
-# 그래프 노드
-# =============================================================================
-def agent_node(state: AgentState) -> dict:
-    """에이전트가 메시지를 처리하고 응답 생성"""
+def supervisor_node(state: AgentState):
+    """Supervisor logic: 다음 에이전트를 결정"""
     llm = get_llm()
+    conf = AgentConfig.SUPERVISOR_CONFIG
 
-    # 시스템 프롬프트 추가 (첫 번째 메시지가 아닌 경우에만)
-    messages = list(state["messages"])
-    if not any(isinstance(m, SystemMessage) for m in messages):
-        messages = [SystemMessage(content=AgentConfig.SYSTEM_PROMPT)] + messages
+    # 프롬프트 구성
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", conf["prompt"]),
+            MessagesPlaceholder(variable_name="messages"),
+            (
+                "system",
+                "Given the conversation above, who should act next? "
+                "Select one of: {options}. "
+                "Return ONLY the name of the next worker, or 'FINISH' if done.",
+            ),
+        ]
+    ).partial(options=str(conf["options"]), members=", ".join(conf["members"]))
 
-    response = llm.invoke(messages)
+    chain = prompt | llm
+    response = chain.invoke(state)
+    decision = response.content.strip()
+
+    # 정규식 기반 매칭 (견고성 강화)
+    next_agent = "FINISH"  # Default fallback
+    found_agents = []
+
+    for option in conf["options"]:
+        # 단어 경계(\b)를 사용하여 정확한 매칭 (Case-insensitive)
+        if re.search(rf"\b{option}\b", decision, re.IGNORECASE):
+            found_agents.append(option)
+
+    # 여러 개가 매칭되면 가장 마지막에 언급된 것, 혹은 명시적 우선순위 적용
+    # 여기서는 발견된 것 중 마지막 옵션을 선택 (문장 끝에 보통 결론이 오므로)
+    if found_agents:
+        next_agent = found_agents[-1]
+
+    print(f"[Supervisor] Raw: {decision!r} -> Next: {next_agent}")
+
     return {
-        "messages": [response],
-        "iteration_count": state.get("iteration_count", 0) + 1,
+        "messages": [AIMessage(content=decision, name="Supervisor")],
+        "next": next_agent,
     }
 
 
-def should_continue(state: AgentState) -> str:
-    """도구 호출이 필요한지 또는 종료할지 판단"""
-    # 최대 반복 횟수 체크
-    if state.get("iteration_count", 0) >= OllamaConfig.MAX_ITERATIONS:
-        return END
-
-    last_message = state["messages"][-1]
-
-    # 도구 호출이 있으면 tools 노드로
-    if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-        return "tools"
-
-    return END
-
-
 # =============================================================================
-# 그래프 구성
+# Graph Construction
 # =============================================================================
-def create_agent_graph():
-    """코딩 에이전트 그래프 생성"""
+def create_graph():
     workflow = StateGraph(AgentState)
 
-    # 노드 추가
-    workflow.add_node("agent", agent_node)
-    workflow.add_node("tools", ToolNode(TOOLS))
+    # Supervisor Node
+    workflow.add_node("Supervisor", supervisor_node)
 
-    # 엣지 추가
-    workflow.set_entry_point("agent")
-    workflow.add_conditional_edges(
-        "agent",
-        should_continue,
-        {
-            "tools": "tools",
-            END: END,
-        },
-    )
-    workflow.add_edge("tools", "agent")
+    # Worker Nodes Check
+    agents = [
+        ("Planner", PLANNER_TOOLS, AgentConfig.PROMPTS["Planner"]),
+        ("Coder", CODER_TOOLS, AgentConfig.PROMPTS["Coder"]),
+        ("Reviewer", REVIEWER_TOOLS, AgentConfig.PROMPTS["Reviewer"]),
+    ]
 
-    return workflow.compile()
+    for name, tools, prompt in agents:
+        workflow.add_node(
+            name,
+            functools.partial(
+                custom_agent_node, name=name, system_prompt=prompt, tools=tools
+            ),
+        )
+        # 모든 Worker는 작업 후 Supervisor로 복귀
+        workflow.add_edge(name, "Supervisor")
+
+    # Start Edge
+    workflow.add_edge(START, "Supervisor")
+
+    # Conditional Edges from Supervisor
+    # map: next_agent 이름 그대로 노드로 이동. FINISH면 종료.
+    workflow.add_conditional_edges("Supervisor", lambda x: x["next"])
+
+    return workflow
 
 
 # =============================================================================
-# 메인 실행
+# Main
 # =============================================================================
 def main():
-    """대화형 코딩 에이전트 실행"""
-    # 워크스페이스 생성
-    os.makedirs(OllamaConfig.WORKSPACE_DIR, exist_ok=True)
-
     print("=" * 60)
-    print("🤖 Ollama Coding Agent")
+    print("🤖 Multi-Agent System (Standardized LangGraph v2)")
     print("=" * 60)
-    print(f"Model: {OllamaConfig.DEFAULT_MODEL}")
-    print(f"Ollama URL: {OllamaConfig.BASE_URL}")
-    print(f"Workspace: {OllamaConfig.WORKSPACE_DIR}")
-    print("-" * 60)
-    print("Type your request (or 'quit' to exit):\n")
 
-    agent = create_agent_graph()
+    workflow = create_graph()
 
-    while True:
-        try:
-            user_input = input("You: ").strip()
+    # DB 연결 (없으면 자동 생성)
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    with SqliteSaver.from_conn_string(DB_PATH) as memory:
+        graph = workflow.compile(checkpointer=memory)
+        config = {"configurable": {"thread_id": "standard_loop_1"}}
 
-            if not user_input:
-                continue
+        print("Type your request (or 'quit'):\n")
+        while True:
+            try:
+                user_input = input("You: ").strip()
+                if user_input.lower() in ("q", "quit", "exit"):
+                    break
+                if not user_input:
+                    continue
 
-            if user_input.lower() in ("quit", "exit", "q"):
-                print("Goodbye! 👋")
+                for event in graph.stream(
+                    {"messages": [HumanMessage(content=user_input)]}, config=config
+                ):
+                    for node, values in event.items():
+                        # Supervisor decision or Agent Final Output
+                        if "messages" in values:
+                            msg = values["messages"][-1]
+                            sender = msg.name if hasattr(msg, "name") else node
+                            print(f"\n> [{sender}]: {msg.content[:300]}...")
+
+            except KeyboardInterrupt:
                 break
-
-            # 에이전트 실행 (Stream)
-            print("\n" + "-" * 40)
-            
-            # 초기 입력 상태
-            initial_state = {
-                "messages": [HumanMessage(content=user_input)],
-                "iteration_count": 0,
-            }
-
-            # 스트리밍 실행
-            for event in agent.stream(initial_state):
-                for node_name, node_data in event.items():
-                    if "messages" in node_data:
-                        last_message = node_data["messages"][-1]
-                        
-                        # 에이전트 메시지 출력
-                        if node_name == "agent":
-                             print(f"\nAgent: {last_message.content}")
-                             if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-                                 for tool_call in last_message.tool_calls:
-                                     print(f"Tool Call: {tool_call['name']} ({tool_call['args']})")
-                        
-                        # 도구 출력
-                        elif node_name == "tools":
-                            for msg in node_data["messages"]:
-                                print(f"\nTool Output: {msg.content}")
-
-            print("-" * 40 + "\n")
-
-        except KeyboardInterrupt:
-            print("\n\nInterrupted. Goodbye! 👋")
-            break
-        except Exception as e:
-            print(f"\n❌ Error: {e}\n")
+            except Exception as e:
+                print(f"Error: {e}")
 
 
 if __name__ == "__main__":
