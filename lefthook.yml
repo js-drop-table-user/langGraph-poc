@@ -14,3 +14,6 @@ pre-commit:
       tags: backend test
       glob: "tests/*.py"
       run: uv run pytest {staged_files}
+    gitleaks:
+      tags: security
+      run: gitleaks detect --verbose --redact
