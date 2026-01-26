@@ -35,7 +35,7 @@ venv.bak/
 .env
 
 # Editor / IDE
-.vscode/
+# .vscode/
 .idea/
 
 workspace/*
